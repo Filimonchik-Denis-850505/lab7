@@ -1,203 +1,273 @@
-	.model tiny
-	.code
-	.186
-	org 100h
+                           .286
+.model  small
+.stack  100h
+
+empty_segment SEGMENT
+empty_segment ENDS
 
 
-eic		macro	cond, str     				;Exit if condition is met
-		LOCAL	exitMacro, writeError
-	                    
-		cond	writeError	                    
-		jmp		exitMacro
-				                    	
-writeError:	  
-	   	mov		ah, 09h
-	   	lea		dx, str
-	   	int		21h
-	   			
-	   	mov		ah, 4Ch
-		int		21h       
-				
-exitMacro:
-endm 	          	
-                                
-	
-start:          
-	mov		ch, 0 
-	mov		cl, es:[0080h]
-	mov		si, 81h
-	lea		di, numberOfLaunches    
-	mov		bx, 127 
-	call	readParam	
-	lea		di, buff
-	mov		bx, 5
-	call	readParam
-	
-	cmp		numberOfLaunches[0], 0 
-	eic		je, neParams
-	cmp		buff[0], 0 
-	eic		jne, tmParams                                                        
-	                      
-	lea		di, numberOfLaunches
-	call	atoi   
-	mov		cx, ax
-	lea		dx, programPath 
-	 
-launchLoop:	    
-	call	startApp	            	               
-	loop	launchLoop	                      
-	                             
-	mov		ah, 4Ch  
-	int		21h
+.data
+    NoArgsException     db "Usage [NumberOfStarts]", 0Dh, 0Ah, '$'
+    fileName            db "C:\app.com", 0
+    tempString          db 256 dup('$')    
+    tempVar             db 256 dup('$')    
+    NumberOfStarts      dw 0
+    log_zero            db "0", 0Dh, 0Ah, '$'
+    log_non_zero        db "1", 0Dh, 0Ah, '$'
+    endl                db 13, 10, '$'
+    spacePos            dw 0
+    base                dw 10
+    parsingStep         dw 1
+    negativeExit        db "Enter correct number!", 0Dh, 0Ah, '$'
+    memoryError         db "Memory allocatingMemory", 0Dh, 0Ah, '$'
+    fileNotFound        db "File not found", 0Dh, 0Ah, '$'
+    badPrivilege        db "Access is denied for this file", 0Dh, 0Ah, '$'
+    memoryAllocation    db "Memory allocation failed", 0Dh, 0Ah, '$'
+    wrongEnviroment     db "Wrong environment", 0Dh, 0Ah, '$'
+    wrongFormat         db "Wrong file format", 0Dh, 0Ah, '$'
+    EPB                 dw 0000
+                        dw offset commandLine, 0
+                        dw 005Ch, 0, 006Ch, 0
+    commandLine         db 125
+                        db "/?"
+    command_text        db 122 dup(?)
+    
+.code
 
+puts proc
+    mov     ah, 9
+    int     21h
+    ret
+endp
 
-atoi proc			
-		push	bx
-		push	dx
-	
-		mov		ax, 0  
-	 
-atoiLoop:
-		cmp		byte ptr [di], 0   
-		je		exitAtoi
-	 
-		cmp		byte ptr [di], '0'
-		eic		jl, wrongNumber		
-		cmp		byte ptr [di], '9' 
-		eic		jg, wrongNumber    
-			      
-		mov		bx, 10 
-		mul		bx
-		mov		bl, [di]
-		sub		bl, '0' 
-		add		ax, bx  
-		
-		cmp		ax, 255  
-		eic		jg, wrongNumber 					      
-			            
-		inc		di	;++          
-		jmp		atoiLoop
-		
-exitAtoi:							    
-		cmp		ax, 1 
-		eic		jl, wrongNumber
-		cmp		ax, 255
-		eic		jg, wrongNumber
-			        	
-		pop		dx
-		pop		bx			        	
-		ret	        
-endp	atoi
+exit proc
+    mov     ax, 4c00h
+    int     21h
+endp
+ 
+reverse_string proc
+    pusha
+    xor bx, bx
+    xor ax, ax
+    mov di, si
+    searching_end_string:
+        cmp byte ptr[si], '$'
+        je end_string
+        inc si
+        jmp searching_end_string
+    end_string:
+        dec si
+    swap_loop:
+        cmp si, di
+        jle end_swap_loop
+        mov al, byte ptr[si]
+        mov bl, byte ptr[di]
+        xchg ax, bx
+        mov byte ptr[si], al
+        mov byte ptr[di], bl
+        dec si
+        inc di
+        jmp swap_loop
+    end_swap_loop:
+    _exit_reverse_string:
+        popa
+        ret
+reverse_string endp
 
+itoa proc
+    pusha
+    xor bx, bx
+    mov di, si
+    _outer_loop_:
+       mov bx, 10
+       xor dx, dx
+       div bx
+       add dx, '0'
+       mov byte ptr[si], dl
+       inc si 
+       cmp ax, 0
+       je _ret_itoa
+       jmp _outer_loop_
+    _ret_itoa:
+        mov byte ptr[si], '$'
+        mov si, di
+        call reverse_string       
+    	popa
+    	ret
+itoa endp
 
-startApp proc								;Starts app with path in DX	      
-		push	ax							
-		push	bx							
-		push	dx	            
-
-		mov		esVal, es					
-		mov		dsVal, ds
-		mov		ssVal, ss
-		mov		spVal, sp
-		
-		mov		sp, memorySize				
-		                                    
-		mov		ah, 4Ah						
-	
-		mov		bx, memorySize shr 4 + 1	
-		int		21h      					;Free memory after program end
-		
-		eic		jc, memModError    			
-		              		             		             
-		mov		ax, cs							
-		mov		word ptr EPB + 4, ax		
-		mov		word ptr EPB + 8, ax		
-		mov		word ptr EPB + 0Ch, ax		
-		                                
-		mov		ax, 4B00h   
-		lea		bx, EPB     
-		int		21h							;Launch program	    
-		
-		mov		es, cs:esVal 
-		mov		ds, cs:dsVal
-		mov		ss, cs:ssVal
-		mov		sp, cs:spVal
-
-		eic		jc, startError		                  				                 		                 		  		        				         	                	               	                           				                           	                           	
-	           
-		pop		dx	           
-		pop		bx
-		pop		ax	        	
-	                
-		ret	            
-endp	startApp
+atoi proc    ;si - source, di - target
+    pusha
+    xor     bx, bx
+    xor     ax, ax
+    start_converting:
+        cmp byte ptr[si], '0'
+        jb _exit_atoi
+        cmp byte ptr[si], '9'
+        jg _exit_atoi
+        mov     bl, 10
+        mul     bx 
+        mov     bl, byte ptr [si]
+        sub     bl, '0'
+        add     ax, bx
+        inc     si
+        jmp     start_converting
+    _exit_atoi:
+    mov word ptr[di], ax
+    popa
+    ret
+atoi endp
 
 
 
+getNumberOfStarts proc
+    pusha
+   
+    mov di, offset tempString
+    getNumber:
+        cmp byte ptr es:[si], '0'
+        jb wrongNumbeerException
+        cmp byte ptr es:[si], '9'
+        jg wrongNumbeerException
 
-	
-readParam proc			
-		push	ax	  
-		push	bx     	          	
-	           
-		cmp		cx, 0	           
-	 	jle		exitReadParam
-	        	      	                  	                  
-skipSpaces:      
-		push	di
-		mov		di, si
-		
-		mov		al, ' '
-		repz	scasb	   
-		dec		di   
-		inc		cx
-		mov		si, di  
-		
-		pop		di
-		        
-findParamEnd:
-		movsb      
-		dec		bx
-		dec		cx
-		cmp		bx, 0
-		je		paramEnded
-		cmp		byte ptr es:[di - 1], 0Dh
-		je		paramEnded
-		cmp		byte ptr es:[di - 1], ' '
-		jne		findParamEnd
-		
-paramEnded:	   		
-		dec		di    
-		mov		byte ptr es:[di], 0
-		inc		di
+        mov     al, es:[si]
+        mov     [di], al
 
-exitReadParam:	  
-		pop		bx   
-		pop		ax	     		        	
-		ret	            	
-endp	readParam 
+        inc     di
+        inc     si
 
-		programPath	db	"C:\app.com", 0
-                                 
-		memModError	db "! Can't modify memory block$"
-		startError	db "! Can't start app$"                                  
-		wrongNumber	db "! Please, enter number between 1 and 255$"                               
-		neParams	db "! Not enough params$"               
-		tmParams	db "! Too many params$"
-		                     
-		numberOfLaunches	db	128 dup(0) 
-		buff				db	5 dup(0)
-		
-		esVal			dw 0
-		dsVal			dw 0
-		ssVal			dw 0
-		spVal			dw 0	                      	
-		                      
-		EPB			dw 0000 ;
-					dw offset commandLine, 0 
-					dw 005Ch, 0, 006Ch, 0  
-		commandLine	db 0, 0Dh   
-                                                                      
-		memorySize	EQU $ - start + 100h + 200h                              
-                               
-end		start
+        cmp byte ptr es:[si], byte ptr 0dh
+        jne getNumber
+;;;;;;;;;;;;;LOG;;;;;;;;;;;;;;;;;
+    ;push    ax
+    ;lea     dx, log_non_zero
+    ;call    puts
+    ;pop     ax
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;cmp byte ptr es:[si], byte ptr '$'
+    ;jne NoArgsExc
+
+    popa
+    ret
+endp
+
+wrongNumbeerException:
+    lea     dx, negativeExit
+    call    puts
+    call    exit
+NoArgsExc:
+    lea     dx, NoArgsException
+    call    puts
+    call    exit
+
+MemoryAllocException:
+    lea     dx, memoryError  
+    call    puts
+    call    exit
+
+start proc
+    mov ax,es
+    mov bx,empty_segment               
+    sub bx,ax
+
+    mov ax, 4a00h
+    int 21h
+    jc MemoryAllocException
+
+    mov     ax, @data
+    mov     ds, ax
+
+    mov     bl, es:[80h]        ;size of args
+    add     bx, 80h 
+    mov     si, 82h
+
+    cmp     si, bx
+    ja      NoArgsExc
+
+    call    getNumberOfStarts
+    toInteger:
+        push    si
+        push    di
+        mov     si, offset tempString
+        mov     di, offset NumberOfStarts
+        call    atoi 
+        pop     di
+        pop     si
+    checkInput:
+        cmp     word ptr [NumberOfStarts], 0    
+        jle     wrongNumbeerException
+        
+        cmp     word ptr [NumberOfStarts], 255
+        jg      wrongNumbeerException 
+
+    mov ax,cs
+    mov word ptr EPB+4,ax
+    mov word ptr EPB+8,ax
+    mov word ptr EPB+0Ch,ax
+    
+    mov     cx, NumberOfStarts
+    runProgramm:
+        mov     ax, 4b00h
+        mov     dx, offset fileName
+        mov     bx, offset EPB
+        int     21h
+        jc _error
+
+    loop runProgramm
+    call    exit
+    _error:
+        cmp ax, 02h
+        call fileNotFoundException
+        cmp ax, 05h
+        call badPrivilegeException
+        cmp ax, 08h
+        call memoryAllocationException
+        cmp ax, 0Ah
+        call wrongEnviromentException
+        cmp ax, 0Bh
+        call wrongFormatException
+        ;mov si, offset tempVar
+        ;call itoa
+        ;mov dx, offset tempVar
+        ;call puts
+        ;call exit   
+    
+;;;;;;;;;;;;;;;;;;;;;;;;;LOGS;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;push    dx
+    ;lea     dx, fileName
+    ;call    puts
+    ;pop     dx
+    ;push    dx
+    ;lea     dx, tempString
+    ;call    puts
+    ;call    exit
+    ;pop     dx
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+endp  
+fileNotFoundException proc
+    lea     dx, fileNotFound
+    call    puts
+    call    exit
+endp
+badPrivilegeException proc
+    lea     dx, badPrivilege
+    call    puts
+    call    exit
+endp
+memoryAllocationException proc
+    lea     dx, memoryAllocation
+    call    puts
+    call    exit
+endp
+wrongEnviromentException proc
+    lea     dx, wrongEnviroment
+    call    puts
+    call    exit
+endp
+wrongFormatException proc
+    lea     dx, wrongFormat
+    call    puts
+    call    exit
+endp
+end start
